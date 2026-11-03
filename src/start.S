@@ -11,7 +11,7 @@ header_start:
 .long MULTIBOOT2_HEADER_MAGIC
 .long MULTIBOOT_ARCHITECTURE_I386
 .long header_end - header_start
-.long (0x100000000 - (MULTIBOOT2_HEADER_MAGIC + MULTIBOOT_ARCHITECTURE_I386 + header_end - header_start)) & 0xffffffff
+.long - (MULTIBOOT2_HEADER_MAGIC + MULTIBOOT_ARCHITECTURE_I386 + header_end - header_start)
 header_end:
 
 _start:

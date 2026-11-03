@@ -9,7 +9,7 @@ const Dir = std.Io.Dir;
 // build runner to parallelize the build automatically (and the cache system to
 // know when a step doesn't need to be re-run).
 pub fn build(b: *std.Build) void {
-    const memory = b.option(usize, "memory", "Memory to run qemu with in megibytes") orelse 1;
+    const memory = b.option(usize, "memory", "Memory to run qemu with in gigibytes") orelse 1;
     const storage = b.option(usize, "disk", "Disk storage for creating the virtual disk with in gigibytes") orelse 1;
 
     const targets = [_]Target.Query {
@@ -103,6 +103,15 @@ pub fn build(b: *std.Build) void {
     disk.setCwd(disk_dir.getDirectory());
     const disk_file = disk.addOutputFileArg("disk.qcow2");
     disk.addArg(b.fmt("{}G", .{storage}));
+
+    const modprobe = b.addSystemCommand(&.{
+        "sudo",
+        "modprobe",
+        "nbd",
+        "max_part=8",
+    });
+
+    modprobe.step.dependOn(&disk.step);
     
     const nbd0 = b.graph.cwdRelativePath("/dev/nbd0");
     
@@ -112,7 +121,7 @@ pub fn build(b: *std.Build) void {
         "-d",
     });
     force_umount_disk.addFileArg(nbd0);
-    force_umount_disk.step.dependOn(&disk.step);
+    force_umount_disk.step.dependOn(&modprobe.step);
     force_umount_disk.failing_to_execute_foreign_is_an_error = false;
 
     const mount_disk = b.addSystemCommand(&.{
@@ -221,12 +230,18 @@ pub fn build(b: *std.Build) void {
     umount_disk.addFileArg(nbd0);
     umount_disk.step.dependOn(&umount_fs.step);
 
+    const sleep = b.addSystemCommand(&.{
+        "sleep",
+        "1",
+    });
+    sleep.step.dependOn(&umount_disk.step);
+
     const qemu = b.addSystemCommand(&[_] []const u8 {
         "qemu-system-x86_64",
         "-m",
     });
 
-    qemu.addArg(b.fmt("{}M", .{memory}));
+    qemu.addArg(b.fmt("{}G", .{memory}));
     qemu.addArg( "-drive");
     qemu.addFileArg2(disk_file, .{
         .prefix = "file=",
@@ -248,7 +263,7 @@ pub fn build(b: *std.Build) void {
         "gtk"
     });
     qemu.addPassthruArgs();
-    qemu.step.dependOn(&umount_disk.step);
+    qemu.step.dependOn(&sleep.step);
 
     // This creates a RunArtifact step in the build graph. A RunArtifact step
     // invokes an executable compiled by Zig. Steps will only be executed by the

@@ -1,7 +1,7 @@
 PAGE = 0x1000;
 
 LOAD_ADDR = 0xffffffff80000000;
-START_ADDR = 0x8000;
+START_ADDR = 2M;
 
 ENTRY(_start);
 
@@ -11,8 +11,8 @@ SECTIONS {
     . = ALIGN(PAGE);
     boot_start = .;
     .text.boot : {
-        *(.text.boot);
-        *(.text.boot.*);
+        KEEP(*(.text.boot));
+        KEEP(*(.text.boot.*));
     }
 
     . = LOAD_ADDR;
