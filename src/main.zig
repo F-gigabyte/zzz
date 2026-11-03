@@ -3,6 +3,7 @@ const Io = std.Io;
 
 const zzz = @import("zzz");
 
-pub fn kernelMain() callconv(.c) void {
+pub export fn kernelMain() callconv(.c) void {
+    while (true) {}
 }
 

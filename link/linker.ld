@@ -14,11 +14,16 @@ SECTIONS {
         KEEP(*(.text.boot));
         KEEP(*(.text.boot.*));
     }
+    . = ALIGN(PAGE);
+    .bss.boot : {
+        KEEP(*(.bss.boot));
+        KEEP(*(.bss.boot.*));
+    }
 
     . = LOAD_ADDR;
     . = ALIGN(PAGE);
 
-    OFFSET = . - START_ADDR - ((SIZEOF(.text.boot) + PAGE - 1) & ~(PAGE - 1));
+    OFFSET = . - START_ADDR - ((SIZEOF(.text.boot) + SIZEOF(.bss.boot) + PAGE - 1) & ~(PAGE - 1));
 
     text_virt_start = .;
     text_phys_start = . - OFFSET;
@@ -64,14 +69,4 @@ SECTIONS {
     
     rodata_virt_end = .;
     rodata_phys_end = . - OFFSET;
-    
-    
-    .debug : {
-        *(.debug*)
-    }
-
-    /DISCARD/ : {
-        *(.eh_frame*)
-        *(.comment)
-    }
 }

@@ -4,6 +4,7 @@
 .code32
 .section .text.boot
 .globl _start
+.type _start, @function
 .globl boot_start
 
 .align 8
@@ -13,11 +14,20 @@ header_start:
 .long header_end - header_start
 .long - (MULTIBOOT2_HEADER_MAGIC + MULTIBOOT_ARCHITECTURE_I386 + header_end - header_start)
 header_end:
+.word 3
+.word 0
+.long 16
+.long _start
+.long 0
+.word 0
+.word 0
+.long 8
 
 _start:
-    mov boot_stack, %ebp
+    mov $boot_stack, %ebp
     mov %ebp, %esp
-    cmp %eax, MULTIBOOT2_BOOTLOADER_MAGIC
+    mov $MULTIBOOT2_BOOTLOADER_MAGIC, %ecx
+    cmp %eax, %ecx
     jne .
     push %ebx
     push $6
@@ -29,7 +39,7 @@ _start:
     mov %cr4, %edx
     or (1 << 5), %edx
     mov %edx, %cr4
-
+    jmp .
 
 // multiboot tags, tag
 // 0x8 -> tag
@@ -52,29 +62,12 @@ find_tag:
 2:
     mov 4(%eax), %edx
     add %edx, %eax
-    jl 1b
+    jmp 1b
 3:
     mov $0, %eax
     ret
 
-.align 0x1000
+.section .bss.boot
+.align 16
+.skip 4096
 boot_stack:
-pml4:
-.quad pml3_0 + 3
-.space 0xff0
-.quad pml3_1 + 3
-pml3_0:
-.quad pml2_0 + 3
-.space 0xff8
-pml2_0:
-.quad 0x0 + 0x83
-.space 0xff8
-pml3_1:
-.space 0xff0
-.quad pml2_1 + 3
-.space 0x8
-pml2_1:
-.quad pml1_1 + 3
-.space 0xff8
-pml1_1:
-.space 0x1000

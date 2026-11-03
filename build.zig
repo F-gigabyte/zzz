@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
             .abi = .eabi,
             .ofmt = .elf,
-            .cpu_features_sub = Target.x86.featureSet(&.{.avx, .avx2, .sse, .sse2, .mmx}),
+            .cpu_features_sub = Target.x86.featureSet(&.{.avx, .avx2, .mmx}),
         },
     };
     // Standard target options allow the person running `zig build` to choose
@@ -68,10 +68,11 @@ pub fn build(b: *std.Build) void {
             // can also hardcode a specific target for an executable or library
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
-            .optimize = optimize,
             .code_model = .kernel,
+            .dwarf_format = .@"32",
+            .optimize = optimize,
+            .strip = false,
         }),
-        .linkage = .static,
         .use_llvm = true,
     });
     exe.root_module.addAssemblyFile(b.path("src/start.S"));
@@ -248,9 +249,6 @@ pub fn build(b: *std.Build) void {
         .suffix = ",format=qcow2"
     });
     qemu.addArgs(&.{
-        "-cpu",
-        "host",
-        "-enable-kvm",
         "-nic",
         "user",
         "-device",
