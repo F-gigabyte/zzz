@@ -69,11 +69,11 @@ pub fn build(b: *std.Build) void {
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .code_model = .kernel,
-            .dwarf_format = .@"32",
             .optimize = optimize,
             .strip = false,
         }),
         .use_llvm = true,
+        .linkage = .static,
     });
     exe.root_module.addAssemblyFile(b.path("src/start.S"));
     exe.root_module.addIncludePath(b.path("include"));

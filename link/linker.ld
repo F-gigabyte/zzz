@@ -19,11 +19,14 @@ SECTIONS {
         KEEP(*(.bss.boot));
         KEEP(*(.bss.boot.*));
     }
+    .data.boot : {
+        KEEP(*(.data.boot));
+        KEEP(*(.data.boot.*));
+    }
+    . = ALIGN(PAGE);
+    OFFSET = LOAD_ADDR - ((. - START_ADDR + PAGE - 1) & ~(PAGE - 1));
 
     . = LOAD_ADDR;
-    . = ALIGN(PAGE);
-
-    OFFSET = . - START_ADDR - ((SIZEOF(.text.boot) + SIZEOF(.bss.boot) + PAGE - 1) & ~(PAGE - 1));
 
     text_virt_start = .;
     text_phys_start = . - OFFSET;
