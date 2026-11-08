@@ -3,6 +3,9 @@ PAGE = 0x1000;
 LOAD_ADDR = 0xffffffff80000000;
 START_ADDR = 2M;
 
+KERNEL_STACK_SIZE = 1K;
+STACK_ALIGNMENT = 16;
+
 ENTRY(_start);
 
 SECTIONS {
@@ -24,8 +27,8 @@ SECTIONS {
         KEEP(*(.data.boot.*));
     }
     . = ALIGN(PAGE);
-    OFFSET = LOAD_ADDR - ((. - START_ADDR + PAGE - 1) & ~(PAGE - 1));
 
+    OFFSET = LOAD_ADDR - .;
     . = LOAD_ADDR;
 
     text_virt_start = .;
@@ -56,10 +59,23 @@ SECTIONS {
         *(.bss)
         *(.bss.*)
     }
-    . = ALIGN(PAGE);
-    
     bss_virt_end = .;
     bss_phys_end = . - OFFSET;
+
+
+    . = ALIGN(STACK_ALIGNMENT);
+    stack_virt_start = .;
+    stack_phys_start = . - OFFSET;
+
+    .stack : AT(. - OFFSET) {
+        . += KERNEL_STACK_SIZE;
+    }
+    
+    . = ALIGN(PAGE);
+    . = ALIGN(STACK_ALIGNMENT);
+
+    stack_virt_end = .;
+    stack_phys_end = . - OFFSET;
 
     rodata_virt_start = .;
     rodata_phys_start = . - OFFSET;
