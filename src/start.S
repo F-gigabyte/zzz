@@ -10,6 +10,40 @@
 #define PAGE_BIG_PAGE_SHIFT 7
 #define PAGE_BIG_PAGE_MASK (1 << PAGE_BIG_PAGE_SHIFT)
 
+#define CR0_PAGING_SHIFT 31
+#define CR0_PAGING_MASK (1 << CR0_PAGING_SHIFT)
+#define CR0_PM_SHIFT 0
+#define CR0_PM_MASK (1 << CR0_PM_SHIFT)
+
+#define CR4_PAE_SHIFT 5
+#define CR4_PAE_MASK (1 << CR4_PAE_SHIFT)
+
+#define MSR_EFER 0xc0000080
+
+#define EFER_LM_SHIFT 8
+#define EFER_LM_MASK (1 << EFER_LM_SHIFT)
+#define EFER_NX_SHIFT 11
+#define EFER_NX_MASK (1 << EFER_NX_SHIFT)
+
+#define GDT_ACCESS_PRESENT_SHIFT 7
+#define GDT_ACCESS_PRESENT_MASK (1 << GDT_ACCESS_PRESENT_SHIFT)
+#define GDT_ACCESS_NOT_SYS_SHIFT 4
+#define GDT_ACCESS_NOT_SYS_MASK (1 << GDT_ACCESS_NOT_SYS_SHIFT)
+#define GDT_ACCESS_EXEC_SHIFT 3
+#define GDT_ACCESS_EXEC_MASK (1 << GDT_ACCESS_EXEC_SHIFT)
+#define GDT_ACCESS_DIRECTION_SHIFT 2
+#define GDT_ACCESS_DIRECTION_MASK (1 << GDT_ACCESS_DIRECTION_SHIFT)
+#define GDT_ACCESS_READ_WRITE_SHIFT 1
+#define GDT_ACCESS_READ_WRITE_MASK (1 << GDT_ACCESS_READ_WRITE_SHIFT)
+
+#define GDT_FLAG_PAGE_SHIFT 3
+#define GDT_FLAG_PAGE_MASK (1 << GDT_FLAG_PAGE_SHIFT)
+#define GDT_FLAG_SIZE_SHIFT 2
+#define GDT_FLAG_SIZE_MASK (1 << GDT_FLAG_SIZE_SHIFT)
+#define GDT_FLAG_LONG_MODE_SHIFT 1
+#define GDT_FLAG_LONG_MODE_MASK (1 << GDT_FLAG_LONG_MODE_SHIFT)
+
+
 .code32
 .section .text.boot
 .globl _start
@@ -17,16 +51,6 @@
 .type find_tag, @function
 .globl boot_start
 
-.globl text_virt_start
-.globl text_phys_start
-.globl text_phys_end
-.globl data_virt_start
-.globl data_phys_start
-.globl stack_phys_end
-.globl stack_virt_end
-.globl rodata_virt_start
-.globl rodata_phys_start
-.globl rodata_phys_end
 
 .align 8
 header_start:
@@ -71,25 +95,26 @@ _start:
     push %eax
     // disable paging
     mov %cr0, %edx
-    and $~(1 << 31), %edx
+    and $~CR0_PAGING_MASK, %edx
     mov %edx, %cr0
     // enable physical address extension
     mov %cr4, %edx
-    or $(1 << 5), %edx
+    or $CR4_PAE_MASK, %edx
     mov %edx, %cr4
     // load page table
     mov $pml4, %edx
     mov %edx, %cr3
     // enable long mode
-    mov $0xc0000080, %ecx
+    mov $MSR_EFER, %ecx
     rdmsr
-    or $(1 << 8), %eax
+    or $(EFER_LM_MASK | EFER_NX_MASK), %eax
     wrmsr
     // enable paging
     mov %cr0, %edx
-    or $(1 << 31), %edx
+    or $(CR0_PAGING_MASK | CR0_PM_MASK), %edx
     mov %edx, %cr0
-    jmp _start64
+    lgdt GDT_pointer
+    ljmp $GDT_code,$_start64
     jmp _panic
 
 // multiboot tags, tag
@@ -120,8 +145,26 @@ find_tag:
 
 .code64
 .globl kernelMain
+
+.globl text_virt_start
+.globl text_phys_start
+.globl text_phys_end
+.globl data_virt_start
+.globl data_phys_start
+.globl stack_phys_end
+.globl stack_virt_end
+.globl rodata_virt_start
+.globl rodata_phys_start
+.globl rodata_phys_end
+
 .section .text.boot
 _start64:
+    mov $GDT_data, %ax
+    mov %ax, %ds
+    mov %ax, %es
+    mov %ax, %fs
+    mov %ax, %gs
+    mov %ax, %ss
     // write kernel pages
     // text segment
     mov $text_phys_start, %rdi
@@ -138,15 +181,21 @@ _start64:
     mov $(PAGE_PRESENT_MASK | PAGE_WRITE_MASK | PAGE_EXECUTE_DISABLE_MASK), %rcx
     call write_section
     // read only data segment
-    mov $text_phys_start, %rdi
-    mov $text_virt_start, %rsi
-    mov $text_phys_end, %rdx
+    mov $rodata_phys_start, %rdi
+    mov $rodata_virt_start, %rsi
+    mov $rodata_phys_end, %rdx
     sub %rdi, %rdx
     mov $(PAGE_PRESENT_MASK | PAGE_EXECUTE_DISABLE_MASK), %rcx
     call write_section
+    mov %cr3, %rdi
+    mov %rdi, %cr3
     mov $stack_virt_end, %rbp
     mov %rbp, %rsp
-    jmp *kernelMain
+    mov $kernelMain, %rdi
+    jmp *%rdi
+1:
+    hlt
+    jmp 1b
 
 // rdi -> phys start (multiple of 4096)
 // rsi -> virt start
@@ -154,6 +203,8 @@ _start64:
 // rcx -> permission mask
 write_section:
     sub $0xffffffff80000000, %rsi
+    shr $12, %rsi
+    shl $3, %rsi
     add $pt1, %rsi
     mov $0, %r9
 1:
@@ -163,7 +214,7 @@ write_section:
     mov %rcx, 0(%rsi)
     xor %rdi, %rcx
     add $0x1000, %rdi
-    add $0x1000, %rsi
+    add $8, %rsi
     sub $0x1000, %rdx
     jmp 1b
 2:
@@ -202,3 +253,26 @@ pd1:
 .align 4096
 pt1:
 .fill 512, 8, 0
+GDT:
+// null
+.quad 0
+// code
+.equ GDT_code, . - GDT
+.word 0xffff
+.word 0x0000
+.byte 0x00
+.byte (GDT_ACCESS_PRESENT_MASK | GDT_ACCESS_NOT_SYS_MASK | GDT_ACCESS_EXEC_MASK | GDT_ACCESS_READ_WRITE_MASK)
+.byte (((GDT_FLAG_PAGE_MASK | GDT_FLAG_LONG_MODE_MASK) << 4) | 0xf)
+.byte 0
+// data
+.equ GDT_data, . - GDT
+.word 0xffff
+.word 0x0000
+.byte 0x00
+.byte (GDT_ACCESS_PRESENT_MASK | GDT_ACCESS_NOT_SYS_MASK | GDT_ACCESS_READ_WRITE_MASK)
+.byte (((GDT_FLAG_PAGE_MASK | GDT_FLAG_SIZE_MASK) << 4) | 0xf)
+.byte 0
+// pointer
+GDT_pointer:
+.word . - GDT - 1
+.quad GDT
