@@ -43,12 +43,27 @@
 #define GDT_FLAG_LONG_MODE_SHIFT 1
 #define GDT_FLAG_LONG_MODE_MASK (1 << GDT_FLAG_LONG_MODE_SHIFT)
 
+#define TAG_FRAMEBUFFER 8
+#define TAG_FRAMEBUFFER_ADDR_OFFSET 8
+#define TAG_FRAMEBUFFER_PITCH_OFFSET 16
+#define TAG_FRAMEBUFFER_WIDTH_OFFSET 20
+#define TAG_FRAMEBUFFER_HEIGHT_OFFSET 24
+#define TAG_FRAMEBUFFER_BPP_OFFSET 25
+#define TAG_FRAMEBUFFER_TYPE_OFFSET 26
+#define TAG_FRAMEBUFFER_RED_FIELD_POS_OFFSET 27
+#define TAG_FRAMEBUFFER_RED_MASK_SIZE_OFFSET 28
+#define TAG_FRAMEBUFFER_GREEN_FIELD_POS_OFFSET 29
+#define TAG_FRAMEBUFFER_GREEN_MASK_SIZE_OFFSET 30
+#define TAG_FRAMEBUFFER_BLUE_FIELD_POS_OFFSET 31
+#define TAG_FRAMEBUFFER_BLUE_MASK_SIZE_OFFSET 32
+
+#define TAG_MEMMAP 6
 
 .code32
 .section .text.boot
 .globl _start
 .type _start, @function
-.type find_tag, @function
+.type find_tags, @function
 .globl boot_start
 
 
@@ -59,11 +74,16 @@ header_start:
 .long header_end - header_start
 .long - (MULTIBOOT2_HEADER_MAGIC + MULTIBOOT_ARCHITECTURE_I386 + header_end - header_start)
 header_end:
-.word 3
+// frame buffer tag
+.word 5
 .word 0
-.long 16
-.long _start
+.long 20
 .long 0
+.long 0
+.long 0
+// padding
+.long 0
+// end tag
 .word 0
 .word 0
 .long 8
@@ -76,11 +96,12 @@ _start:
     // initialise stack
     mov $boot_stack, %ebp
     mov %ebp, %esp
+    push $0
+    push %ebx
     // check is multiboot2 bootloader
     mov $MULTIBOOT2_BOOTLOADER_MAGIC, %ecx
     cmp %eax, %ecx
     jne _panic
-    push %ebx
     // check is 64 bit processor
     mov $0x80000001, %eax
     cpuid
@@ -88,11 +109,6 @@ _start:
     and %ecx, %edx
     cmp %edx, %ecx
     jne _panic
-    // find memory map
-    push $6
-    call find_tag
-    add $8, %esp
-    push %eax
     // disable paging
     mov %cr0, %edx
     and $~CR0_PAGING_MASK, %edx
@@ -116,32 +132,6 @@ _start:
     lgdt GDT_pointer
     ljmp $GDT_code,$_start64
     jmp _panic
-
-// multiboot tags, tag
-// 0x8 -> tag
-// 0x4 -> multiboot tags
-// 0x0 -> ret address
-find_tag:
-    mov 0x4(%esp), %eax
-    mov 0x8(%esp), %edx
-    mov (%eax), %ecx
-    add %eax, %ecx
-1:
-    cmp %eax, %ecx
-    jge 3f
-    push %ecx
-    mov (%eax), %ecx
-    cmp %edx, %ecx
-    pop %ecx
-    jne 2f
-    ret
-2:
-    mov 4(%eax), %edx
-    add %edx, %eax
-    jmp 1b
-3:
-    mov $0, %eax
-    ret
 
 .code64
 .globl kernelMain
@@ -187,15 +177,131 @@ _start64:
     sub %rdi, %rdx
     mov $(PAGE_PRESENT_MASK | PAGE_EXECUTE_DISABLE_MASK), %rcx
     call write_section
+    
+    pop %rbx
+
+    mov %rbx, %rcx
+    push $0
+    push $0
+    mov %rsp, %rdi
+    push $TAG_MEMMAP
+    push $TAG_FRAMEBUFFER
+    mov %rsp, %rsi
+    mov $2, %rdx
+    call find_tags
+    // remove input tags
+    add $16, %rsp
+    // framebuffer tag
+    pop %r12
+    // memmap tag
+    pop %r13
+
+    mov TAG_FRAMEBUFFER_TYPE_OFFSET(%rax), %rdi
+    mov $1, %rsi
+    cmp %rdi, %rsi
+    jne _panic
+
+    mov TAG_FRAMEBUFFER_BPP_OFFSET(%rax), %rdi
+    mov $32, %rsi
+    cmp %rdi, %rsi
+    jne _panic
+
+    mov TAG_FRAMEBUFFER_PITCH_OFFSET(%rax), %rdx
+    mov TAG_FRAMEBUFFER_HEIGHT_OFFSET(%rax), %rcx
+    mul %rcx, %rdx
+    mul $4, %rdx
+
     mov %cr3, %rdi
     mov %rdi, %cr3
+    mov %rbx, %rdi
     mov $stack_virt_end, %rbp
     mov %rbp, %rsp
-    mov $kernelMain, %rdi
-    jmp *%rdi
+    mov $kernelMain, %rsi
+    jmp *%rsi
 1:
     hlt
     jmp 1b
+
+// find multiboot tags
+// rdi -> output buffer
+// rsi -> input tags pointer
+// rdx -> number of tags
+// rcx -> multiboot information structure
+// Returns
+// rax -> rdi
+find_tags:
+    // save r12
+    push %r12
+    mov $0, %r9
+    // get rax ready
+    mov %rdi, %rax
+    mov $0, %rdi
+    // number of tags left to find
+    mov %rdx, %r10
+    // rdx in bytes
+    shl $3, %rdx
+    // zero out output buffer
+1:
+    cmp %r9, %rdx
+    jge 2f
+    mov %rdi, %r9(%rax)
+    add $8, %r9
+    jmp 1b
+2:
+    // total size
+    mov 0x0(%rcx), %r8
+    // end address
+    add %rcx, %r8
+    // first tag
+    add $0x8, %rcx
+1:
+    // check haven't incremented too far
+    cmp %rcx, %r8
+    jge 5f
+    // check we still have unknown tags
+    cmp %rdi, %r11
+    jeq 5f
+    mov (%rcx), %r9
+    // increment through tags to see if have match and if so, decrement r10
+    mov $0, %r11
+4:
+    // check haven't incremented beyond all the tags
+    cmp %r11, %rdx
+    // if so, exit
+    jge 2f
+    // load output tag
+    mov %r11(%rax), %r12
+    // check it's zero
+    cmp %r12, %rdi
+    // if not, increment
+    jne 3f
+    // get the input tag
+    mov %r11(%rsi), %r12
+    // check tags match
+    cmp %r12, %r9
+    // if not, increment
+    jne 3f
+    // if tags match, store offset
+    mov %rcx, %r11(%rax)
+    // decment r10 by 1
+    sub $1, %r10
+3:
+    // increment r11 by 8 bytes and repeat loop
+    add $8, %r11
+    jmp 4b
+2:
+    // get length
+    mov 0x8(%rcx), %r9
+    // increment by length
+    add %r9, %rcx
+    // align to 8 bytes
+    add $7, %rcx
+    and $~0x7, %rcx
+    jmp 1b
+3:
+    pop r12
+    ret
+
 
 // rdi -> phys start (multiple of 4096)
 // rsi -> virt start
@@ -220,7 +326,11 @@ write_section:
 2:
     ret
 
-
+// rdi -> memmap tag
+// Returns
+// rax -> address
+// rdx -> 0 if not found and 1 otherwise
+find_page:
 
 .section .bss.boot
 .align 16
@@ -230,7 +340,8 @@ boot_stack:
 .align 4096
 pml4:
 .quad pdpt0 + (PAGE_WRITE_MASK | PAGE_PRESENT_MASK)
-.fill 510, 8, 0
+.fill 509, 8, 0
+.quad pml4 + (PAGE_WRITE_MASK | PAGE_PRESENT_MASK)
 .quad pdpt1 + (PAGE_WRITE_MASK | PAGE_PRESENT_MASK)
 .align 4096
 pdpt0:
@@ -276,3 +387,6 @@ GDT:
 GDT_pointer:
 .word . - GDT - 1
 .quad GDT
+.align 8
+mepmap_addr:
+.quad 0

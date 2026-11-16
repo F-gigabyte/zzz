@@ -10,6 +10,7 @@ ENTRY(_start);
 
 SECTIONS {
     . = START_ADDR;
+    _kernel_phys_start = .;
 
     . = ALIGN(PAGE);
     boot_start = .;
@@ -88,4 +89,6 @@ SECTIONS {
     
     rodata_virt_end = .;
     rodata_phys_end = . - OFFSET;
+
+    _kernel_phys_end = . - OFFSET;
 }
